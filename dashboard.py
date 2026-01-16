@@ -1,19 +1,19 @@
 import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-from streamlit_lottie import st_lottie
-import time
-import requests
-from datetime import datetime
-import traceback
 
-# --- Config (MUST BE FIRST) ---
+# --- Config (Top Level) ---
 st.set_page_config(
     page_title="WeatherNow",
     page_icon="🌤️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+import pandas as pd
+import plotly.graph_objects as go
+import time
+import requests
+from datetime import datetime
+import traceback
 
 # --- CSS (Glassmorphism) ---
 st.markdown("""
@@ -25,39 +25,28 @@ st.markdown("""
         background: linear-gradient(to right, #2c5364, #203a43, #0f2027);
     }
     
-    /* Headings */
-    h1, h2, h3, h4, p { color: #ffffff !important; text-shadow: 2px 2px 4px #000000; }
-
-    /* Glass Cards */
-    .metric-card {
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 16px;
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-        backdrop-filter: blur(5px);
-        -webkit-backdrop-filter: blur(5px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
+    /* Headings & Text */
+    h1, h2, h3, h4, p, span, div { color: #ffffff !important; }
+    
+    /* Metrics */
+    .metric-container {
+        border: 1px solid rgba(255,255,255,0.2);
+        background: rgba(255,255,255,0.05);
+        border-radius: 15px;
         padding: 20px;
         text-align: center;
-        transition: transform 0.3s;
-        margin-bottom: 20px;
+        backdrop-filter: blur(10px);
+        margin: 5px;
     }
-    .metric-card:hover { transform: translateY(-5px); background: rgba(255, 255, 255, 0.15); }
+    .metric-value { font-size: 2.5rem; font-weight: bold; margin: 10px 0; }
+    .metric-label { font-size: 1rem; text-transform: uppercase; opacity: 0.8; }
     
-    .metric-value {
-        font-size: 3rem; font-weight: bold;
-        background: -webkit-linear-gradient(#eee, #333);
-        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        color: white; margin: 10px 0;
-    }
-    .metric-label { font-size: 1.2rem; color: #ddd; text-transform: uppercase; letter-spacing: 2px; }
-
     /* Buttons */
     .stButton>button {
-        background-image: linear-gradient(to right, #1FA2FF 0%, #12D8FA  51%, #1FA2FF  100%);
-        border: none; border-radius: 10px; color: white; padding: 15px 45px;
-        text-align: center; text-transform: uppercase; transition: 0.5s; background-size: 200% auto; font-weight: bold; width: 100%;
+        background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%);
+        color: white; border: none; padding: 10px 20px; border-radius: 8px;
+        font-weight: bold; width: 100%;
     }
-    .stButton>button:hover { background-position: right center; color: #fff; text-decoration: none; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -65,21 +54,10 @@ st.markdown("""
 try:
     from database import get_db, engine, Base
     from services.weather_service import get_weather_from_wttr, save_weather_data, get_history_stats
-    # ML Imports REMOVED for Stability
     Base.metadata.create_all(bind=engine)
 except Exception as e:
     st.error(f"Startup Error: {e}")
     st.stop()
-
-# --- Assets ---
-def load_lottieurl(url: str):
-    try:
-        r = requests.get(url, timeout=2)
-        if r.status_code != 200: return None
-        return r.json()
-    except: return None
-
-lottie_weather = load_lottieurl("https://assets9.lottiefiles.com/packages/lf20_kljxfhkc.json")
 
 # --- Helpers ---
 def get_emoji(desc):
@@ -95,29 +73,28 @@ def get_emoji(desc):
 
 # --- Sidebar ---
 with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/4052/4052984.png", width=100) # Static Image instead of Lottie
     st.markdown("## 🌍 Location")
     cities = ["London", "New York", "Tokyo", "Paris", "Singapore", "Dubai", "Mumbai", "Sydney", "Berlin", "Toronto", "Custom..."]
     sel = st.selectbox("Select City", cities)
     city = st.text_input("City Name", "San Francisco") if sel == "Custom..." else sel
-    
     st.markdown("---")
-    if lottie_weather: st_lottie(lottie_weather, height=150)
     st.caption(f"📍 Watching: {city}")
 
 # --- Main ---
 st.title(f"WeatherNow: {city}")
-st.markdown(f"### {datetime.now().strftime('%A, %d %B %Y')}")
+st.caption(f"Live Weather Intelligence • {datetime.now().strftime('%A, %d %B')}")
 
 # Caching
 @st.cache_data(ttl=300)
 def get_data(city_name):
     return get_weather_from_wttr(city_name)
 
-tab1, tab2, tab3 = st.tabs(["🔥 Live Status", "📉 Analytics", "🚀 AI Forecast (Lite)"])
+tab1, tab2, tab3 = st.tabs(["🔥 Live Status", "📉 Trends", "🔮 Forecast"])
 
 with tab1:
-    if st.button("🔄 Refresh Live Data", type="primary"):
-        with st.spinner(f"Contacting satellites for {city}..."):
+    if st.button("Refresh Data", type="primary"):
+        with st.spinner("Fetching..."):
             try:
                 data_raw = get_data(city)
                 if data_raw:
@@ -132,43 +109,63 @@ with tab1:
                     
                     # Display
                     c1, c2, c3, c4 = st.columns(4)
-                    with c1: st.markdown(f"<div class='metric-card'><div class='metric-label'>Temp</div><div class='metric-value'>{curr['temp_C']}°</div><div>{curr['temp_F']}°F</div></div>", unsafe_allow_html=True)
-                    with c2: st.markdown(f"<div class='metric-card'><div class='metric-label'>Sky</div><div style='font-size:3rem'>{emoji}</div><div>{desc}</div></div>", unsafe_allow_html=True)
-                    with c3: st.markdown(f"<div class='metric-card'><div class='metric-label'>Humid</div><div class='metric-value'>{curr['humidity']}%</div><div>Relative</div></div>", unsafe_allow_html=True)
-                    with c4: st.markdown(f"<div class='metric-card'><div class='metric-label'>Wind</div><div class='metric-value'>{curr['windspeedKmph']}</div><div>km/h</div></div>", unsafe_allow_html=True)
                     
-                    st.success(f"Updated: {datetime.now().strftime('%H:%M:%S')}")
+                    # Manual HTML Cards
+                    c1.markdown(f"""
+                    <div class="metric-container">
+                        <div class="metric-label">Temp</div>
+                        <div class="metric-value">{curr['temp_C']}°</div>
+                        <div>{curr['temp_F']}°F</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    c2.markdown(f"""
+                    <div class="metric-container">
+                        <div class="metric-label">Condition</div>
+                        <div class="metric-value">{emoji}</div>
+                        <div>{desc}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    c3.markdown(f"""
+                    <div class="metric-container">
+                        <div class="metric-label">Humidity</div>
+                        <div class="metric-value">{curr['humidity']}%</div>
+                        <div>Relative</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    c4.markdown(f"""
+                    <div class="metric-container">
+                        <div class="metric-label">Wind</div>
+                        <div class="metric-value">{curr['windspeedKmph']}</div>
+                        <div>km/h</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
                 else:
-                    st.error("Server Busy. Try again.")
+                    st.error("Server Busy.")
             except Exception as e:
                 st.error(f"Error: {e}")
     else:
-        st.info("👆 Click Refresh for Live Data")
+        st.info("Click Refresh for Live Data")
 
 with tab2:
-    if st.button("📊 Load Trends"):
+    if st.button("Load History"):
         db = next(get_db())
         recs = get_history_stats(db, city, 30)
         if recs:
             df = pd.DataFrame([{"Date": r.timestamp, "Temp": r.temp_c} for r in recs])
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df['Date'], y=df['Temp'], mode='lines+markers', line=dict(color='#00d2ff', width=4), fill='tozeroy'))
-            fig.update_layout(title="Temperature History", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"))
+            fig.add_trace(go.Scatter(x=df['Date'], y=df['Temp'], mode='lines+markers', line=dict(color='#00d2ff', width=3), fill='tozeroy'))
+            fig.update_layout(title="Temperature Trend", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"))
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.warning("No history found.")
 
 with tab3:
-    st.info("ℹ️ Neural Network Disabled for Cloud Stability. (Use Local Version for full LSTM)")
-    st.markdown("### Statistical Forecast")
-    if st.button("Generate Trend Forecast"):
-        db = next(get_db())
-        recs = get_history_stats(db, city, 7)
-        if len(recs) > 0:
-            avg_temp = sum([r.temp_c for r in recs]) / len(recs)
-            st.metric("3-Day Average Trend", f"{avg_temp:.1f}°C")
-        else:
-            st.warning("Need more data.")
+    st.info("ML Prediction Disabled (Cloud Safe Mode)")
+    st.metric("Status", "Operational")
 
 st.markdown("---")
-st.caption("WeatherNow Cloud Edition | Powered by Open-Meteo")
+st.caption("WeatherNow Reliable Edition")
