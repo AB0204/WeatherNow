@@ -1,11 +1,16 @@
 import streamlit as st
 import pandas as pd
-import requests
-import plotly.express as px
 import plotly.graph_objects as go
-from streamlit_lottie import st_lottie
-from pyngrok import ngrok
 import time
+import requests
+
+# Internal Imports (Direct Mode for Cloud)
+from database import get_db, engine, Base
+from services.weather_service import get_weather_from_wttr, save_weather_data, get_history_stats
+from ml.train import predict_next_day, train_model
+
+# Ensure DB exists
+Base.metadata.create_all(bind=engine)
 
 # --- Config ---
 st.set_page_config(
@@ -75,29 +80,7 @@ with st.sidebar:
     city = st.text_input("City Name", "London", help="Enter the city to analyze")
     
     st.markdown("---")
-    st.markdown("### 📡 System Status")
-    api_status = st.empty()
-    
-    # Check API
-    API_URL = "http://127.0.0.1:8000"
-    try:
-        if requests.get(API_URL).status_code == 200:
-            api_status.success("Backend Online")
-        else:
-            api_status.error("Backend Error")
-    except:
-        api_status.error("Backend Offline")
-
-    st.markdown("---")
-    if st.button("🚀 Generate Live Link"):
-        try:
-            # Open a HTTP tunnel on the default port 8501
-            public_url = ngrok.connect(8501).public_url
-            st.success(f"Live Link Active!")
-            st.code(public_url, language="text")
-            st.info("Keep this tab open to maintain the link.")
-        except Exception as e:
-            st.error(f"Tunnel Error: {e}")
+    st.caption("Deployment Mode: Cloud (Standalone)")
 
 # --- Main Layout ---
 col_header, col_anim = st.columns([3, 1])
@@ -109,6 +92,10 @@ with col_anim:
     if lottie_weather:
         st_lottie(lottie_weather, height=120, key="weather_anim")
 
+# Helper to get DB session
+def get_session():
+    return next(get_db())
+
 # --- Tabs ---
 tab1, tab2, tab3 = st.tabs(["🔥 Live Monitor", "📊 Analytics Suite", "🔮 AI Forecast"])
 
@@ -117,9 +104,13 @@ with tab1:
     if st.button("Refresh Data", key="refresh_btn"):
         with st.spinner("Fetching satellite data..."):
             try:
-                response = requests.get(f"{API_URL}/weather/{city}")
-                if response.status_code == 200:
-                    data = response.json()
+                # DIRECT CALL instead of API
+                data_raw = get_weather_from_wttr(city)
+                if data_raw:
+                    db = get_session()
+                    save_weather_data(db, city, data_raw)
+                    
+                    curr = data_raw['current_condition'][0]
                     
                     # Metrics Grid
                     c1, c2, c3, c4 = st.columns(4)
@@ -128,8 +119,8 @@ with tab1:
                         st.markdown(f"""
                         <div class="metric-card">
                             <h3>Temp</h3>
-                            <h2>{data['temp_c']}°C</h2>
-                            <p>{data['temp_f']}°F</p>
+                            <h2>{curr['temp_C']}°C</h2>
+                            <p>{curr['temp_F']}°F</p>
                         </div>
                         """, unsafe_allow_html=True)
                         
@@ -137,7 +128,7 @@ with tab1:
                         st.markdown(f"""
                         <div class="metric-card">
                             <h3>Humidity</h3>
-                            <h2>{data['humidity']}%</h2>
+                            <h2>{curr['humidity']}%</h2>
                             <p>Relative</p>
                         </div>
                         """, unsafe_allow_html=True)
@@ -146,7 +137,7 @@ with tab1:
                         st.markdown(f"""
                         <div class="metric-card">
                             <h3>Wind</h3>
-                            <h2>{data['wind_speed']}</h2>
+                            <h2>{curr['windspeedKmph']}</h2>
                             <p>km/h</p>
                         </div>
                         """, unsafe_allow_html=True)
@@ -155,56 +146,63 @@ with tab1:
                         st.markdown(f"""
                         <div class="metric-card">
                             <h3>Condition</h3>
-                            <h2>{data['condition']}</h2>
+                            <h2>{curr['weatherDesc'][0]['value']}</h2>
                             <p>Current</p>
                         </div>
                         """, unsafe_allow_html=True)
                     
                 else:
                     st.error("Could not fetch data.")
-            except:
-                st.error("API Connection Failed")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
 with tab2:
     st.markdown("### Historical Analysis")
     if st.button("Load Trends", key="history_btn"):
         with st.spinner("Crunching historical data..."):
             try:
-                r = requests.get(f"{API_URL}/history/{city}?days=30")
-                if r.status_code == 200:
-                    hist = r.json()
-                    if hist:
-                        df = pd.DataFrame(hist)
-                        df['timestamp'] = pd.to_datetime(df['timestamp'])
-                        
-                        # Interactive Plotly Chart
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(
-                            x=df['timestamp'], 
-                            y=df['temp_c'],
-                            mode='lines+markers',
-                            name='Temperature',
-                            line=dict(color='#FF4B4B', width=3),
-                            fill='tozeroy'
-                        ))
-                        
-                        fig.update_layout(
-                            title=f"30-Day Temperature Trend: {city}",
-                            xaxis_title="Date",
-                            yaxis_title="Temperature (°C)",
-                            template="plotly_dark",
-                            plot_bgcolor='rgba(0,0,0,0)',
-                            paper_bgcolor='rgba(0,0,0,0)'
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Data Table
-                        with st.expander("View Raw Data"):
-                            st.dataframe(df.style.background_gradient(cmap="Reds", subset=["temp_c"]), use_container_width=True)
-                    else:
-                        st.warning("No history available.")
-            except:
-                st.error("Error loading history.")
+                db = get_session()
+                records = get_history_stats(db, city, days=30)
+                
+                if records:
+                    # Convert objects to dict list for pandas
+                    data_list = []
+                    for r in records:
+                        data_list.append({
+                            "timestamp": r.timestamp,
+                            "temp_c": r.temp_c
+                        })
+                    
+                    df = pd.DataFrame(data_list)
+                    
+                    # Interactive Plotly Chart
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=df['timestamp'], 
+                        y=df['temp_c'],
+                        mode='lines+markers',
+                        name='Temperature',
+                        line=dict(color='#FF4B4B', width=3),
+                        fill='tozeroy'
+                    ))
+                    
+                    fig.update_layout(
+                        title=f"30-Day Temperature Trend: {city}",
+                        xaxis_title="Date",
+                        yaxis_title="Temperature (°C)",
+                        template="plotly_dark",
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Data Table
+                    with st.expander("View Raw Data"):
+                         st.dataframe(df, use_container_width=True)
+                else:
+                    st.warning("No history available. (Run 'Refresh Data' first)")
+            except Exception as e:
+                st.error(f"Error loading history: {e}")
 
 with tab3:
     st.markdown("### Neural Network Prediction")
@@ -215,26 +213,41 @@ with tab3:
             with st.spinner("Running LSTM Inference..."):
                 time.sleep(1) # Dramatic pause
                 try:
-                    r = requests.get(f"{API_URL}/predict/{city}")
-                    if r.status_code == 200:
-                        pred = r.json()
-                        temp_pred = pred['predicted_temp_c']
+                    db = get_session()
+                    
+                    # 1. Get History
+                    records = get_history_stats(db, city, days=5)
+                    if len(records) < 3:
+                         st.warning("⚠️ Access Denied: Not enough data. Please 'Refresh Data' a few times or use a city with history.")
+                    else:
+                        temps = [r.temp_c for r in records[:3]]
+                        temps.reverse()
                         
-                        st.markdown(f"""
-                        <div style="background: linear-gradient(45deg, #1e3c72, #2a5298); padding: 40px; border-radius: 15px; text-align: center;">
-                            <h2 style="color:white; margin:0;">Target: Tomorrow</h2>
-                            <h1 style="font-size: 80px; color: #00ebff; margin: 10px 0;">{temp_pred:.1f}°C</h1>
-                            <p style="color: #ccc;">LSTM Confidence: High</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        # 2. Try Predict
+                        pred = predict_next_day(city, temps)
                         
-                    elif r.status_code == 404:
-                        st.warning("⚠️ Access Denied: Model Not Trained. Please run 'weather.py predict' in CLI first.")
-                except:
-                    st.error("Prediction Service Unavailable")
+                        if pred is None:
+                            # Auto-train if missing
+                            st.info("Training new model for this city...")
+                            path, msg = train_model(db, city)
+                            if path:
+                                pred = predict_next_day(city, temps)
+                            else:
+                                st.error(f"Training failed: {msg}")
+
+                        if pred is not None:
+                            st.markdown(f"""
+                            <div style="background: linear-gradient(45deg, #1e3c72, #2a5298); padding: 40px; border-radius: 15px; text-align: center;">
+                                <h2 style="color:white; margin:0;">Target: Tomorrow</h2>
+                                <h1 style="font-size: 80px; color: #00ebff; margin: 10px 0;">{pred:.1f}°C</h1>
+                                <p style="color: #ccc;">LSTM Confidence: High</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                except Exception as e:
+                    st.error(f"Prediction Error: {e}")
 
     with c_info:
         st.info("ℹ️ This prediction uses a Long Short-Term Memory (LSTM) Recurrent Neural Network trained on your local historical data.")
 
 st.markdown("---")
-st.caption("Weather Agent Pro v2.0 | Built with FastAPI & Streamlit | 🚀 Agentic AI")
+st.caption("Weather Agent Pro v2.0 | Built with Streamlit | 🚀 Agentic AI")
