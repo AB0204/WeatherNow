@@ -1,19 +1,11 @@
-typer
-requests
-rich
-sqlalchemy
-pandas
-matplotlib
-seaborn
-apscheduler
-pytest
-pytest-cov
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch
-scikit-learn
 numpy
-fastapi
-uvicorn
+pandas
+scikit-learn
 streamlit
 plotly
 streamlit-lottie
-pyngrok
+sqlalchemy
+requests
+rich
