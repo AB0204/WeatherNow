@@ -22,12 +22,14 @@ def get_rich_weather_data(city: str):
         lat, lon = loc['latitude'], loc['longitude']
         client_timezone = loc.get('timezone', 'auto')
         
-        # 2. Weather API (Current + Daily + Hourly)
+        # 2. Weather API (Current + Daily + Hourly + Minutely)
         w_url = (
             f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
-            "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,uv_index"
-            "&hourly=temperature_2m,weather_code,uv_index"
-            "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max"
+            "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,weather_code,wind_speed_10m,uv_index,precipitation"
+            "&hourly=temperature_2m,weather_code,uv_index,precipitation_probability,apparent_temperature"
+            "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum"
+            "&minutely_15=precipitation"
+            "&forecast_days=3"  # Get enough data for 48h hourly
             f"&timezone={client_timezone}"
         )
         w_res = requests.get(w_url, timeout=4).json()
@@ -51,10 +53,12 @@ def get_rich_weather_data(city: str):
                 "uv_index": w_res.get('current', {}).get('uv_index', 0),
                 "is_day": w_res['current']['is_day'],
                 "weather_code": w_res['current']['weather_code'],
-                "aqi": aqi_res.get('current', {}).get('us_aqi', 0)
+                "aqi": aqi_res.get('current', {}).get('us_aqi', 0),
+                "precip": w_res['current']['precipitation']
             },
             "daily": [],
-            "hourly": []
+            "hourly": [],
+            "minutely": []
         }
         
         # Process Daily (7 Days)
@@ -67,19 +71,36 @@ def get_rich_weather_data(city: str):
                 "min_temp": daily['temperature_2m_min'][i],
                 "sunrise": daily['sunrise'][i],
                 "sunset": daily['sunset'][i],
-                "uv_max": daily['uv_index_max'][i]
+                "uv_max": daily['uv_index_max'][i],
+                "precip_sum": daily['precipitation_sum'][i]
             })
             
-        # Process Hourly (Next 24h)
+        # Process Hourly (Next 48 Hours)
         hourly = w_res['hourly']
-        current_hour = datetime.now().hour
-        # Slice next 24 hours roughly
-        for i in range(24):
+        current_hour_idx = 0 
+        # Find current hour index roughly
+        now_str = datetime.now().isoformat()
+        # Simple slice: assume start is close to 0 or match time. 
+        # API returns from 00:00 of requested day. logic: just take first 48 from now if possible, or just first 48 returned
+        # Better: just take first 48 items returned, as API handles "current" context if we asked for past days? API defaults to today.
+        
+        for i in range(min(48, len(hourly['time']))):
             data['hourly'].append({
                 "time": hourly['time'][i],
                 "temp": hourly['temperature_2m'][i],
+                "feels_like": hourly['apparent_temperature'][i],
+                "prob": hourly['precipitation_probability'][i],
                 "code": hourly['weather_code'][i]
             })
+            
+        # Process Minutely (Next 60 mins - 4 steps of 15 min)
+        if 'minutely_15' in w_res:
+            mins = w_res['minutely_15']
+            for i in range(min(4, len(mins['time']))):
+                 data['minutely'].append({
+                     "time": mins['time'][i],
+                     "precip": mins['precipitation'][i]
+                 })
             
         return data
         
@@ -87,32 +108,9 @@ def get_rich_weather_data(city: str):
         console.print(f"[red]Error fetching data: {e}[/red]")
         return None
 
-# Keep legacy function for DB compatibility if needed, but wrapper it
+# Keep legacy function for DB compatibility
 def get_weather_from_wttr(city: str):
-    """Legacy wrapper for backward compatibility with database saving."""
-    data = get_rich_weather_data(city)
-    if not data: return None
-    
-    # Map to old structure so existing DB saves don't break immediately
-    # (Though ideally we would update DB schema, but we want to be minimal)
-    return {
-        'current_condition': [{
-            'temp_C': data['current']['temp'],
-            'temp_F': round(data['current']['temp'] * 9/5 + 32, 1),
-            'humidity': data['current']['humidity'],
-            'windspeedKmph': data['current']['wind_speed'],
-            'weatherDesc': [{'value': get_desc_from_code(data['current']['weather_code'])}]
-        }]
-    }
+    return get_rich_weather_data(city)
 
 def get_desc_from_code(code):
-    """Map WMO code to text."""
-    codes = {
-        0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
-        45: "Fog", 48: "Rime fog",
-        51: "Light drizzle", 53: "Drizzle", 55: "Dense drizzle",
-        61: "Slight rain", 63: "Rain", 65: "Heavy rain",
-        71: "Snow fall", 73: "Moderate snow", 75: "Heavy snow",
-        95: "Thunderstorm"
-    }
-    return codes.get(code, "Variable")
+    return "Variable" 

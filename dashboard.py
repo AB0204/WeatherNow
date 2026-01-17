@@ -7,233 +7,233 @@ import plotly.graph_objects as go
 import folium
 from streamlit_folium import st_folium
 
-# --- 1. Custom CSS & Config ---
-st.set_page_config(page_title="WeatherNow", page_icon="🌤️", layout="wide")
+# --- 1. CONFIG & ANIMATED CSS ---
+st.set_page_config(page_title="WeatherNow", page_icon="⛈️", layout="wide")
 
 st.markdown("""
 <style>
-    /* Gradient background */
-    .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    @keyframes fadeIn {
+        0% { opacity: 0; transform: translateY(20px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.02); }
+        100% { transform: scale(1); }
     }
     
-    /* Weather cards with glassmorphism */
+    .stApp {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        color: white;
+    }
+    
+    .animate-enter {
+        animation: fadeIn 0.8s ease-out forwards;
+    }
+    
     .weather-card {
         background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
         border-radius: 20px;
-        padding: 30px;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-        border: 1px solid rgba(255,255,255,0.18);
+        padding: 25px;
+        border: 1px solid rgba(255,255,255,0.2);
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
         text-align: center;
-        margin-bottom: 15px;
+        transition: transform 0.3s;
+        margin-bottom: 20px;
+    }
+    .weather-card:hover {
+        transform: translateY(-5px);
+        background: rgba(255, 255, 255, 0.15);
     }
     
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
+    .alert-box {
+        background: rgba(255, 87, 87, 0.2);
+        border-left: 5px solid #ff5757;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        animation: pulse 2s infinite;
+    }
     
-    /* White text */
-    h1, h2, h3, p, span, div, label {color: white !important;}
-    
-    /* Custom Metrics */
-    .metric-value { font-size: 2.5rem; font-weight: bold; margin: 0; }
-    .metric-label { font-size: 1rem; opacity: 0.8; }
+    .minute-cast {
+        background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%);
+        padding: 15px;
+        border-radius: 15px;
+        text-align: center;
+        font-weight: bold;
+        margin-bottom: 20px;
+        border: 1px solid rgba(255,255,255,0.3);
+    }
+
+    h1, h2, h3, p, div, span { color: white !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- Imports & Services ---
+# --- IMPORTS ---
 try:
     from services.weather_service import get_rich_weather_data
 except ImportError:
-    st.error("❌ Service module not found. Please check deployment.")
+    st.error("❌ Core services missing.")
     st.stop()
 
-if 'favorites' not in st.session_state:
-    st.session_state.favorites = []
+if 'favorites' not in st.session_state: st.session_state.favorites = ["London", "New York"]
+if 'selected_city' not in st.session_state: st.session_state.selected_city = "London"
 
-# --- 3 & 4. Error Handling & Caching ---
-@st.cache_data(ttl=600)  # Cache 10 minutes
-def get_weather_cached(city):
-    return get_rich_weather_data(city)
+# --- HELPER: MINUTECAST LOGIC ---
+def get_minutecast_text(minutely_data):
+    if not minutely_data: return "MinuteCast unavailable"
+    
+    # Check next 4 chunks (1 hour)
+    has_rain = any(m['precip'] > 0 for m in minutely_data)
+    
+    if not has_rain:
+        return "☀️ No precipitation expected for the next 60 min."
+    
+    # Find start time
+    for m in minutely_data:
+        if m['precip'] > 0:
+            t_obj = datetime.fromisoformat(m['time'])
+            return f"🌧️ Precipitation starting at {t_obj.strftime('%H:%M')}"
+            
+    return "Variable conditions"
 
-# --- Sidebar ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.title("🌤️ WeatherNow")
+    st.image("https://cdn-icons-png.flaticon.com/512/1163/1163661.png", width=80)
+    st.title("WeatherNow")
     
-    # 8. Favorites
-    st.subheader("⭐ Favorites")
-    for fav in st.session_state.favorites:
-        if st.button(f"📍 {fav}", key=fav):
-            st.session_state['selected_city'] = fav
-    
+    st.subheader("⭐ My Places")
+    for f in st.session_state.favorites:
+        if st.button(f"📍 {f}", key=f):
+            st.session_state.selected_city = f
+
     st.markdown("---")
-    st.caption("Comparison Mode")
-    
-    # 7. Comparison Cities
-    compare_cities = st.multiselect(
-        "Compare Cities",
-        [
-            # North America
-            "New York", "Los Angeles", "Chicago", "San Francisco", "Miami", "Las Vegas", "Orlando", "Toronto", "Vancouver", "Mexico City", "Cancun",
-            # Europe
-            "London", "Paris", "Berlin", "Rome", "Madrid", "Amsterdam", "Barcelona", "Venice", "Prague", "Vienna", "Zurich", "Athens", "Santorini", "Istanbul", "Moscow", "Kyiv",
-            # Asia
-            "Tokyo", "Kyoto", "Osaka", "Seoul", "Beijing", "Shanghai", "Hong Kong", "Singapore", "Bangkok", "Phuket", "Bali", "Mumbai", "New Delhi", "Dubai", "Abu Dhabi", "Riyadh", "Tel Aviv", "Jerusalem",
-            # South America
-            "São Paulo", "Rio de Janeiro", "Buenos Aires", "Lima", "Bogota", "Santiago",
-            # Africa
-            "Cairo", "Cape Town", "Johannesburg", "Marrakech", "Lagos", "Nairobi",
-            # Oceania
-            "Sydney", "Melbourne", "Auckland", "Fiji", "Bora Bora"
-        ],
-        default=[]
-    )
+    cities = st.multiselect("Compare", ["New York", "London", "Tokyo", "Paris", "Berlin", "Dubai", "Singapore"], default=[])
 
-# --- Main Layout ---
-# 2. Better Layout
-col_title, col_search = st.columns([2, 1])
-with col_title:
-    st.title("🌤️ WeatherNow")
-with col_search:
-    default_city = st.session_state.get('selected_city', 'New York')
-    city = st.text_input("Enter City", value=default_city)
+# --- MAIN ---
+c1, c2 = st.columns([3,1])
+with c1:
+    search = st.text_input("Search Location", value=st.session_state.selected_city)
+with c2:
+    if st.button("❤️ Save"):
+        if search not in st.session_state.favorites:
+            st.session_state.favorites.append(search)
+            st.toast("Saved!")
 
-if city:
-    with st.spinner("🔄 Loading..."):
-        data = get_weather_cached(city)
+if search:
+    with st.spinner("Scanning atmosphere..."):
+        data = get_rich_weather_data(search)
         
         if not data:
-            st.error(f"❌ City '{city}' not found")
+            st.error("Location not found.")
         else:
-            # Add to fav button
-            c_fav, c_export = st.columns([1, 4])
-            with c_fav:
-                if st.button("⭐ Save Favorite"):
-                    if city not in st.session_state.favorites:
-                        st.session_state.favorites.append(city)
-                        st.toast(f"Added {city} to favorites!")
-            
-            # --- 5. Better Display (Metrics) ---
             curr = data['current']
             
-            # 10. Weather Alerts
-            if curr['temp'] > 35:
-                st.error(f"🔥 Heat Alert: Temperature is {curr['temp']}°C")
-            if curr['wind_speed'] > 50:
-                st.warning(f"💨 High Wind Warning: {curr['wind_speed']} km/h")
-            if curr['uv_index'] > 8:
-                st.warning(f"☀️ High UV Alert: Index {curr['uv_index']}")
+            # --- ALERTS SECTION ---
+            # MinuteCast
+            mc_text = get_minutecast_text(data.get('minutely', []))
+            st.markdown(f"<div class='minute-cast animate-enter'>{mc_text}</div>", unsafe_allow_html=True)
+            
+            # Severe Weather
+            if curr['wind_speed'] > 40:
+                st.markdown(f"<div class='alert-box'>⚠️ HIGH WIND WARNING: {curr['wind_speed']} km/h gusts detected.</div>", unsafe_allow_html=True)
+            if curr['uv_index'] > 7:
+                 st.markdown(f"<div class='alert-box'>☀️ HIGH UV ALERT: Protection required.</div>", unsafe_allow_html=True)
 
-            # Top Cards
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown(f"""
-                <div class="weather-card">
-                    <p class="metric-label">🌡️ Temperature</p>
-                    <h1 class="metric-value">{curr['temp']}°C</h1>
-                    <p>Feels like {curr['feels_like']}°C</p>
-                </div>
-                """, unsafe_allow_html=True)
-            with c2:
-                st.markdown(f"""
-                <div class="weather-card">
-                    <p class="metric-label">💧 Humidity</p>
-                    <h1 class="metric-value">{curr['humidity']}%</h1>
-                    <p>UV Index: {curr['uv_index']}</p>
-                </div>
-                """, unsafe_allow_html=True)
-            with c3:
-                st.markdown(f"""
-                <div class="weather-card">
-                    <p class="metric-label">💨 Wind</p>
-                    <h1 class="metric-value">{curr['wind_speed']} km/h</h1>
-                    <p>AQI: {curr['aqi']}</p>
-                </div>
-                """, unsafe_allow_html=True)
+            # --- HEADER METRICS ---
+            col_main, col_detail = st.columns([1, 1.5])
             
-            # --- Tabs for Content ---
-            tab1, tab2, tab3 = st.tabs(["📈 Forecast", "🗺️ Map", "⚖️ Compare"])
-            
-            with tab1:
-                # 6. Plotly Charts (Hourly Forecast)
-                st.subheader("24-Hour Forecast")
-                hourly_df = pd.DataFrame(data['hourly'])
+            with col_main:
+                st.markdown(f"""
+                <div class='weather-card animate-enter'>
+                    <h2 style='margin:0'>{data['city']}</h2>
+                    <h1 style='font-size:5rem; margin:0'>{round(curr['temp'])}°</h1>
+                    <p style='opacity:0.8'>Feels like {round(curr['feels_like'])}°</p>
+                    <p style='font-size:1.2rem; text-transform:uppercase; letter-spacing:2px'>{curr.get('is_day') and 'DAY' or 'NIGHT'}</p>
+                </div>
+                """, unsafe_allow_html=True)
                 
+            with col_detail:
+                c_a, c_b = st.columns(2)
+                with c_a:
+                    st.markdown(f"<div class='weather-card animate-enter'>💧 Humidity<br><h1>{curr['humidity']}%</h1></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='weather-card animate-enter'>🌪️ Wind<br><h1>{curr['wind_speed']}</h1><small>km/h</small></div>", unsafe_allow_html=True)
+                with c_b:
+                     st.markdown(f"<div class='weather-card animate-enter'>☀️ UV Index<br><h1>{curr['uv_index']}</h1></div>", unsafe_allow_html=True)
+                     st.markdown(f"<div class='weather-card animate-enter'>🍃 Air Quality<br><h1>{curr['aqi']}</h1></div>", unsafe_allow_html=True)
+
+            # --- TABS ---
+            t1, t2, t3 = st.tabs(["🌩️ Radar & Map", "📅 48h Forecast", "🌅 Astro & Details"])
+            
+            with t1:
+                st.subheader("Live Precipitation Radar")
+                # Folium with RainViewer
+                m = folium.Map(location=[data['lat'], data['lon']], zoom_start=8, tiles='CartoDB dark_matter')
+                
+                # RainViewer Layer
+                folium.TileLayer(
+                    tiles="https://tile.rainviewer.com/v2/radar/nowcast_loop/512/{z}/{x}/{y}/2/1_1.png",
+                    attr="RainViewer",
+                    overlay=True,
+                    name="Precipitation",
+                    opacity=0.7
+                ).add_to(m)
+                
+                folium.Marker([data['lat'], data['lon']], popup=data['city'], icon=folium.Icon(color="red", icon="cloud")).add_to(m)
+                st_folium(m, width=900, height=500)
+                st.caption("Radar data provided by RainViewer | Map by OpenStreetMap")
+
+            with t2:
+                st.subheader("hourly Forecast (48 Hours)")
+                hourly_df = pd.DataFrame(data['hourly'])
+                hourly_df['time'] = pd.to_datetime(hourly_df['time'])
+                
+                # Plotly Area Chart
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=hourly_df['time'],
-                    y=hourly_df['temp'],
-                    mode='lines+markers',
-                    line=dict(color='#FF6B6B', width=3),
-                    fill='tozeroy',
-                    name='Temp'
+                    x=hourly_df['time'], y=hourly_df['temp'],
+                    mode='lines', name='Temp',
+                    line=dict(color='#00d2ff', width=3),
+                    fill='tozeroy'
                 ))
+                fig.add_trace(go.Bar(
+                    x=hourly_df['time'], y=hourly_df['prob'],
+                    name='Rain %',
+                    marker_color='rgba(255, 255, 255, 0.3)',
+                    yaxis='y2'
+                ))
+                
                 fig.update_layout(
-                    plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
                     font=dict(color='white'),
-                    margin=dict(l=0, r=0, t=30, b=0),
-                    height=300
+                    yaxis=dict(title="Temp °C", showgrid=False),
+                    yaxis2=dict(title="Rain %", overlaying='y', side='right', showgrid=False, range=[0, 100]),
+                    hovermode="x unified",
+                    height=350
                 )
                 st.plotly_chart(fig, use_container_width=True)
+
+            with t3:
+                # Astro Data (Sunrise/Sunset)
+                today = data['daily'][0]
+                sunrise = datetime.fromisoformat(today['sunrise']).strftime("%H:%M")
+                sunset = datetime.fromisoformat(today['sunset']).strftime("%H:%M")
                 
-                # 11. Export Data
-                csv = hourly_df.to_csv(index=False)
-                st.download_button(
-                    "📥 Download Forecast CSV",
-                    csv,
-                    f"weather_{city}.csv",
-                    "text/csv"
-                )
-
-            with tab2:
-                # 9. Weather Map
-                st.subheader("📍 Location Map")
-                m = folium.Map(location=[data['lat'], data['lon']], zoom_start=10)
-                folium.Marker(
-                    [data['lat'], data['lon']], 
-                    popup=f"{city}: {curr['temp']}°C",
-                    tooltip=city
-                ).add_to(m)
-                st_folium(m, width=800, height=400)
-
-            with tab3:
-                # 7. Comparison
-                st.subheader("City Comparison")
-                if compare_cities:
-                    comp_data = []
-                    # Add current city first
-                    comp_data.append({
-                        "City": city,
-                        "Temp (°C)": curr['temp'],
-                        "Humidity (%)": curr['humidity'],
-                        "Wind (km/h)": curr['wind_speed'],
-                        "AQI": curr['aqi']
-                    })
-                    
-                    for c_name in compare_cities:
-                        if c_name != city:
-                            c_d = get_weather_cached(c_name)
-                            if c_d:
-                                comp_data.append({
-                                    "City": c_name,
-                                    "Temp (°C)": c_d['current']['temp'],
-                                    "Humidity (%)": c_d['current']['humidity'],
-                                    "Wind (km/h)": c_d['current']['wind_speed'],
-                                    "AQI": c_d['current']['aqi']
-                                })
-                    
-                    df_comp = pd.DataFrame(comp_data)
-                    st.dataframe(df_comp, use_container_width=True)
-                    
-                    # Comparison Chart
-                    fig_comp = go.Figure(data=[
-                        go.Bar(name='Temp', x=df_comp['City'], y=df_comp['Temp (°C)']),
-                        go.Bar(name='Humidity', x=df_comp['City'], y=df_comp['Humidity (%)'])
-                    ])
-                    fig_comp.update_layout(barmode='group', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
-                    st.plotly_chart(fig_comp, use_container_width=True)
-                else:
-                    st.info("Select cities in the sidebar to compare.")
-
+                c_sun, c_moon = st.columns(2)
+                with c_sun:
+                    st.markdown(f"""
+                    <div class='weather-card'>
+                        <h3>🌅 Sunrise</h3>
+                        <h1>{sunrise}</h1>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with c_moon:
+                    st.markdown(f"""
+                    <div class='weather-card'>
+                        <h3>🌇 Sunset</h3>
+                        <h1>{sunset}</h1>
+                    </div>
+                    """, unsafe_allow_html=True)
