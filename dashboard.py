@@ -7,233 +7,278 @@ import plotly.graph_objects as go
 import folium
 from streamlit_folium import st_folium
 
-# --- 1. CONFIG & ANIMATED CSS ---
-st.set_page_config(page_title="WeatherNow", page_icon="⛈️", layout="wide")
+# --- 1. CONFIG & THEME ENGINE ---
+st.set_page_config(page_title="WeatherNow", page_icon="🌤️", layout="wide")
 
-st.markdown("""
-<style>
-    @keyframes fadeIn {
-        0% { opacity: 0; transform: translateY(20px); }
-        100% { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes pulse {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.02); }
-        100% { transform: scale(1); }
-    }
-    
-    .stApp {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        color: white;
-    }
-    
-    .animate-enter {
-        animation: fadeIn 0.8s ease-out forwards;
-    }
-    
-    .weather-card {
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border-radius: 20px;
-        padding: 25px;
-        border: 1px solid rgba(255,255,255,0.2);
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-        text-align: center;
-        transition: transform 0.3s;
-        margin-bottom: 20px;
-    }
-    .weather-card:hover {
-        transform: translateY(-5px);
-        background: rgba(255, 255, 255, 0.15);
-    }
-    
-    .alert-box {
-        background: rgba(255, 87, 87, 0.2);
-        border-left: 5px solid #ff5757;
-        padding: 15px;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        animation: pulse 2s infinite;
-    }
-    
-    .minute-cast {
-        background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%);
-        padding: 15px;
-        border-radius: 15px;
-        text-align: center;
-        font-weight: bold;
-        margin-bottom: 20px;
-        border: 1px solid rgba(255,255,255,0.3);
-    }
+# Dynamic Theme Logic
+def get_theme(code, is_day):
+    # (Background Gradient, Text Color (unused since always white), Accent Color)
+    if is_day == 0: 
+        return "linear-gradient(to bottom right, #0F2027, #203A43, #2C5364)", "#4ca1af" # Night
+    if code in [0, 1]: 
+        return "linear-gradient(to bottom right, #2980B9, #6DD5FA, #FFFFFF)", "#ffaa00" # Clear Day
+    if code in [2, 3]: 
+        return "linear-gradient(to bottom right, #4B79A1, #283E51)", "#add8e6" # Cloudy
+    if code in [51, 53, 55, 61, 63, 65, 80, 81, 82]: 
+        return "linear-gradient(to bottom right, #373B44, #4286f4)", "#00d2ff" # Rain
+    if code in [71, 73, 75]: 
+        return "linear-gradient(to bottom right, #83a4d4, #b6fbff)", "#ffffff" # Snow
+    if code in [95, 96, 99]: 
+        return "linear-gradient(to bottom right, #232526, #414345)", "#ff5555" # Storm
+    return "linear-gradient(to bottom right, #1e3c72, #2a5298)", "#ffffff" # Default
 
-    h1, h2, h3, p, div, span { color: white !important; }
-</style>
-""", unsafe_allow_html=True)
-
-# --- IMPORTS ---
+# Safe Import
 try:
     from services.weather_service import get_rich_weather_data
 except ImportError:
-    st.error("❌ Core services missing.")
+    st.error("Service Error. Please check deployment.")
     st.stop()
 
-if 'favorites' not in st.session_state: st.session_state.favorites = ["London", "New York"]
+# Initialize Session
 if 'selected_city' not in st.session_state: st.session_state.selected_city = "London"
+if 'favorites' not in st.session_state: st.session_state.favorites = ["London", "New York", "Tokyo"]
 
-# --- HELPER: MINUTECAST LOGIC ---
+# Helper for MinuteCast
 def get_minutecast_text(minutely_data):
     if not minutely_data: return "MinuteCast unavailable"
-    
-    # Check next 4 chunks (1 hour)
     has_rain = any(m['precip'] > 0 for m in minutely_data)
-    
-    if not has_rain:
-        return "☀️ No precipitation expected for the next 60 min."
-    
-    # Find start time
+    if not has_rain: return "☀️ No rain expected in the next hour"
     for m in minutely_data:
         if m['precip'] > 0:
-            t_obj = datetime.fromisoformat(m['time'])
-            return f"🌧️ Precipitation starting at {t_obj.strftime('%H:%M')}"
-            
+            return f"🌧️ Rain expected at {datetime.fromisoformat(m['time']).strftime('%H:%M')}"
     return "Variable conditions"
 
-# --- SIDEBAR ---
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/1163/1163661.png", width=80)
-    st.title("WeatherNow")
+# Fetch Data FIRST to determine Theme
+with st.spinner("Connecting to satellites..."):
+    data = get_rich_weather_data(st.session_state.selected_city)
+
+# Fallback defaults if load fails (to prevent crash before UI renders)
+bg_gradient = "linear-gradient(to right, #2c3e50, #4ca1af)"
+if data:
+    bg_gradient, accent_color = get_theme(data['current']['weather_code'], data['current']['is_day'])
+
+# --- 2. CSS MASTERPIECE ---
+st.markdown(f"""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap');
     
-    st.subheader("⭐ My Places")
-    for f in st.session_state.favorites:
-        if st.button(f"📍 {f}", key=f):
-            st.session_state.selected_city = f
+    html, body, [class*="css"] {{
+        font-family: 'Poppins', sans-serif;
+    }}
+    
+    .stApp {{
+        background: {bg_gradient};
+        color: white;
+    }}
+    
+    /* Hero Card */
+    .hero-container {{
+        text-align: center;
+        padding: 40px 20px;
+        animation: fadeIn 1s ease-in;
+    }}
+    
+    .hero-temp {{
+        font-size: 8rem;
+        font-weight: 800;
+        line-height: 1;
+        text-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        margin: 0;
+    }}
+    
+    .hero-city {{
+        font-size: 2.5rem;
+        font-weight: 300;
+        opacity: 0.9;
+        margin-top: 10px;
+    }}
+    
+    .hero-desc {{
+        font-size: 1.5rem;
+        font-weight: 400;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        opacity: 0.8;
+        margin-bottom: 20px;
+    }}
+    
+    /* Glass Cards */
+    .glass-card {{
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 24px;
+        padding: 24px;
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
+        transition: transform 0.3s ease, background 0.3s ease;
+        margin-bottom: 15px;
+        height: 100%;
+        text-align: center;
+    }}
+    
+    .glass-card:hover {{
+        transform: translateY(-5px);
+        background: rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }}
+    
+    /* MinuteCast Pill */
+    .minutecast-pill {{
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 50px;
+        padding: 10px 30px;
+        display: inline-block;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.1);
+        margin-bottom: 30px;
+        font-weight: 600;
+    }}
+    
+    /* Animations */
+    @keyframes fadeIn {{
+        from {{ opacity: 0; transform: translateY(20px); }}
+        to {{ opacity: 1; transform: translateY(0); }}
+    }}
+    
+    /* Metrics */
+    .metric-label {{ font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7; }}
+    .metric-val {{ font-size: 2rem; font-weight: 600; }}
+    
+    /* Hiding Streamlit clutter */
+    #MainMenu {{ visibility: hidden; }}
+    footer {{ visibility: hidden; }}
+    
+    /* White text force */
+    h1, h2, h3, p, div, span, label {{ color: white !important; }}
+    
+</style>
+""", unsafe_allow_html=True)
 
+# --- 3. SIDEBAR NAVIGATION ---
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/1163/1163661.png", width=60)
+    st.markdown("### WeatherNow")
+    
+    # Search
+    new_city = st.text_input("🔍 Search City", value="")
+    if new_city: st.session_state.selected_city = new_city
+    
     st.markdown("---")
-    cities = st.multiselect("Compare", ["New York", "London", "Tokyo", "Paris", "Berlin", "Dubai", "Singapore"], default=[])
+    st.caption("SAVED PLACES")
+    for fav in st.session_state.favorites:
+        if st.button(f"📍 {fav}", key=fav, use_container_width=True):
+            st.session_state.selected_city = fav
+            
+    st.markdown("---")
+    st.caption("GLOBAL HOTSPOTS")
+    hotspots = ["Bora Bora", "Santorini", "Kyoto", "Reykjavik", "Cape Town", "Dubai"]
+    for spot in hotspots:
+        if st.button(spot, key=spot, use_container_width=True):
+            st.session_state.selected_city = spot
 
-# --- MAIN ---
-c1, c2 = st.columns([3,1])
+# --- 4. MAIN CONTENT ---
+if not data:
+    st.error("Wait... retrying connection.")
+    st.stop()
+
+curr = data['current']
+
+# A. HERO SECTION
+st.markdown(f"""
+<div class="hero-container">
+    <div class="hero-city">{data['city']}, {data['country']}</div>
+    <div class="hero-temp">{round(curr['temp'])}°</div>
+    <div class="hero-desc">{get_minutecast_text(data.get('minutely'))}</div>
+    <div class="minutecast-pill">Feels like {round(curr['feels_like'])}° • High UV: {curr['uv_index']} • Wind: {curr['wind_speed']} km/h</div>
+</div>
+""", unsafe_allow_html=True)
+
+# B. MAIN METRICS GRID
+c1, c2, c3, c4 = st.columns(4)
 with c1:
-    search = st.text_input("Search Location", value=st.session_state.selected_city)
+    st.markdown(f"""
+    <div class="glass-card">
+        <div class="metric-label">Humidity</div>
+        <div class="metric-val">{curr['humidity']}%</div>
+    </div>""", unsafe_allow_html=True)
 with c2:
-    if st.button("❤️ Save"):
-        if search not in st.session_state.favorites:
-            st.session_state.favorites.append(search)
-            st.toast("Saved!")
+    st.markdown(f"""
+    <div class="glass-card">
+        <div class="metric-label">Air Quality</div>
+        <div class="metric-val">{curr['aqi']}</div>
+    </div>""", unsafe_allow_html=True)
+with c3:
+    st.markdown(f"""
+    <div class="glass-card">
+        <div class="metric-label">Sunrise</div>
+        <div class="metric-val">{datetime.fromisoformat(data['daily'][0]['sunrise']).strftime('%H:%M')}</div>
+    </div>""", unsafe_allow_html=True)
+with c4:
+    st.markdown(f"""
+    <div class="glass-card">
+        <div class="metric-label">Sunset</div>
+        <div class="metric-val">{datetime.fromisoformat(data['daily'][0]['sunset']).strftime('%H:%M')}</div>
+    </div>""", unsafe_allow_html=True)
 
-if search:
-    with st.spinner("Scanning atmosphere..."):
-        data = get_rich_weather_data(search)
-        
-        if not data:
-            st.error("Location not found.")
-        else:
-            curr = data['current']
-            
-            # --- ALERTS SECTION ---
-            # MinuteCast
-            mc_text = get_minutecast_text(data.get('minutely', []))
-            st.markdown(f"<div class='minute-cast animate-enter'>{mc_text}</div>", unsafe_allow_html=True)
-            
-            # Severe Weather
-            if curr['wind_speed'] > 40:
-                st.markdown(f"<div class='alert-box'>⚠️ HIGH WIND WARNING: {curr['wind_speed']} km/h gusts detected.</div>", unsafe_allow_html=True)
-            if curr['uv_index'] > 7:
-                 st.markdown(f"<div class='alert-box'>☀️ HIGH UV ALERT: Protection required.</div>", unsafe_allow_html=True)
+# C. TABS (Forecast / Radar / Detailed)
+st.markdown("###") # Spacer
+t1, t2 = st.tabs(["📅 48-Hour Forecast", "🗺️ Weather Radar"])
 
-            # --- HEADER METRICS ---
-            col_main, col_detail = st.columns([1, 1.5])
-            
-            with col_main:
-                st.markdown(f"""
-                <div class='weather-card animate-enter'>
-                    <h2 style='margin:0'>{data['city']}</h2>
-                    <h1 style='font-size:5rem; margin:0'>{round(curr['temp'])}°</h1>
-                    <p style='opacity:0.8'>Feels like {round(curr['feels_like'])}°</p>
-                    <p style='font-size:1.2rem; text-transform:uppercase; letter-spacing:2px'>{curr.get('is_day') and 'DAY' or 'NIGHT'}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-            with col_detail:
-                c_a, c_b = st.columns(2)
-                with c_a:
-                    st.markdown(f"<div class='weather-card animate-enter'>💧 Humidity<br><h1>{curr['humidity']}%</h1></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='weather-card animate-enter'>🌪️ Wind<br><h1>{curr['wind_speed']}</h1><small>km/h</small></div>", unsafe_allow_html=True)
-                with c_b:
-                     st.markdown(f"<div class='weather-card animate-enter'>☀️ UV Index<br><h1>{curr['uv_index']}</h1></div>", unsafe_allow_html=True)
-                     st.markdown(f"<div class='weather-card animate-enter'>🍃 Air Quality<br><h1>{curr['aqi']}</h1></div>", unsafe_allow_html=True)
+with t1:
+    # Plotly Chart
+    hourly_df = pd.DataFrame(data['hourly'])
+    fig = go.Figure()
+    
+    # Area for Temp
+    fig.add_trace(go.Scatter(
+        x=hourly_df['time'], y=hourly_df['temp'],
+        fill='tozeroy', mode='lines',
+        line=dict(width=4, color='white'),
+        fillcolor='rgba(255, 255, 255, 0.1)',
+        name='Temp'
+    ))
+    
+    # Bars for Rain
+    fig.add_trace(go.Bar(
+        x=hourly_df['time'], y=hourly_df['prob'],
+        yaxis='y2', name='Rain %',
+        marker_color='rgba(255, 255, 255, 0.3)'
+    ))
+    
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color='white', family='Poppins'),
+        yaxis=dict(showgrid=False, showticklabels=False),
+        yaxis2=dict(overlaying='y', side='right', range=[0, 100], showgrid=False, showticklabels=False),
+        margin=dict(l=0, r=0, t=20, b=0),
+        height=300,
+        showlegend=False
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # 7-Day Row
+    st.markdown("#### 7-Day Outlook")
+    cols = st.columns(7)
+    for i, day in enumerate(data['daily'][:7]):
+        d_name = datetime.fromisoformat(day['date']).strftime("%a")
+        with cols[i]:
+            st.markdown(f"""
+            <div class="glass-card" style="padding: 10px; font-size: 0.8rem;">
+                <div style="opacity:0.7">{d_name}</div>
+                <div style="font-weight:bold; font-size:1.1rem; margin: 5px 0;">{round(day['max_temp'])}°</div>
+                <div style="opacity:0.7">{round(day['min_temp'])}°</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-            # --- TABS ---
-            t1, t2, t3 = st.tabs(["🌩️ Radar & Map", "📅 48h Forecast", "🌅 Astro & Details"])
-            
-            with t1:
-                st.subheader("Live Precipitation Radar")
-                # Folium with RainViewer
-                m = folium.Map(location=[data['lat'], data['lon']], zoom_start=8, tiles='CartoDB dark_matter')
-                
-                # RainViewer Layer
-                folium.TileLayer(
-                    tiles="https://tile.rainviewer.com/v2/radar/nowcast_loop/512/{z}/{x}/{y}/2/1_1.png",
-                    attr="RainViewer",
-                    overlay=True,
-                    name="Precipitation",
-                    opacity=0.7
-                ).add_to(m)
-                
-                folium.Marker([data['lat'], data['lon']], popup=data['city'], icon=folium.Icon(color="red", icon="cloud")).add_to(m)
-                st_folium(m, width=900, height=500)
-                st.caption("Radar data provided by RainViewer | Map by OpenStreetMap")
+with t2:
+    m = folium.Map(location=[data['lat'], data['lon']], zoom_start=9, tiles='CartoDB dark_matter')
+    folium.TileLayer(
+        tiles="https://tile.rainviewer.com/v2/radar/nowcast_loop/512/{z}/{x}/{y}/2/1_1.png",
+        attr="RainViewer", overlay=True, name="Rain", opacity=0.7
+    ).add_to(m)
+    folium.Marker([data['lat'], data['lon']], tooltip=data['city']).add_to(m)
+    st_folium(m, width=1200, height=450)
 
-            with t2:
-                st.subheader("hourly Forecast (48 Hours)")
-                hourly_df = pd.DataFrame(data['hourly'])
-                hourly_df['time'] = pd.to_datetime(hourly_df['time'])
-                
-                # Plotly Area Chart
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=hourly_df['time'], y=hourly_df['temp'],
-                    mode='lines', name='Temp',
-                    line=dict(color='#00d2ff', width=3),
-                    fill='tozeroy'
-                ))
-                fig.add_trace(go.Bar(
-                    x=hourly_df['time'], y=hourly_df['prob'],
-                    name='Rain %',
-                    marker_color='rgba(255, 255, 255, 0.3)',
-                    yaxis='y2'
-                ))
-                
-                fig.update_layout(
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='white'),
-                    yaxis=dict(title="Temp °C", showgrid=False),
-                    yaxis2=dict(title="Rain %", overlaying='y', side='right', showgrid=False, range=[0, 100]),
-                    hovermode="x unified",
-                    height=350
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-            with t3:
-                # Astro Data (Sunrise/Sunset)
-                today = data['daily'][0]
-                sunrise = datetime.fromisoformat(today['sunrise']).strftime("%H:%M")
-                sunset = datetime.fromisoformat(today['sunset']).strftime("%H:%M")
-                
-                c_sun, c_moon = st.columns(2)
-                with c_sun:
-                    st.markdown(f"""
-                    <div class='weather-card'>
-                        <h3>🌅 Sunrise</h3>
-                        <h1>{sunrise}</h1>
-                    </div>
-                    """, unsafe_allow_html=True)
-                with c_moon:
-                    st.markdown(f"""
-                    <div class='weather-card'>
-                        <h3>🌇 Sunset</h3>
-                        <h1>{sunset}</h1>
-                    </div>
-                    """, unsafe_allow_html=True)
+st.markdown("<div style='text-align:center; padding: 20px; opacity: 0.5; font-size: 0.8rem'>WeatherNow Ultimate • Design by Antigravity</div>", unsafe_allow_html=True)
