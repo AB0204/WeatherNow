@@ -29,7 +29,7 @@ def get_rich_weather_data(city: str):
             "&hourly=temperature_2m,weather_code,uv_index,precipitation_probability,apparent_temperature"
             "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum"
             "&minutely_15=precipitation"
-            "&forecast_days=3"  # Get enough data for 48h hourly
+            "&forecast_days=8"  # Fetch 8 days to ensure full 7-day outlook
             f"&timezone={client_timezone}"
         )
         w_res = requests.get(w_url, timeout=4).json()
