@@ -6,6 +6,7 @@ from datetime import datetime
 import plotly.graph_objects as go
 import folium
 from streamlit_folium import st_folium
+from streamlit_js_eval import get_geolocation
 
 # --- 1. CONFIG & THEME SETUP ---
 st.set_page_config(page_title="WeatherNow", page_icon="🌤️", layout="wide")
@@ -18,8 +19,8 @@ except ImportError:
     st.stop()
 
 # Initialize Session State
-if 'selected_city' not in st.session_state: st.session_state.selected_city = "New York"
-if 'favorites' not in st.session_state: st.session_state.favorites = ["New York", "London", "Tokyo"]
+if 'selected_city' not in st.session_state: st.session_state.selected_city = "New Delhi"
+if 'favorites' not in st.session_state: st.session_state.favorites = ["New Delhi", "New York", "London"]
 
 # --- DYNAMIC GRADIENT LOGIC ---
 def get_weather_gradient(code, is_day):
@@ -156,29 +157,82 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("### 🌤️ WeatherNow")
     
-    if st.button("📍 Locate Me", use_container_width=True):
-        try:
-            loc = requests.get('https://ipinfo.io/json', timeout=2).json()
-            if 'city' in loc:
-                st.session_state.selected_city = loc['city']
-                st.rerun()
-        except: pass
+    # Accurate Geolocation (Browser-based)
+    loc_button = st.checkbox("📍 Use My Location")
+    if loc_button:
+        loc = get_geolocation()
+        if loc:
+            lat = loc['coords']['latitude']
+            lon = loc['coords']['longitude']
+            # Reverse Geocode
+            try:
+                headers = {'User-Agent': 'WeatherNow/1.0'}
+                rev = requests.get(f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}", headers=headers, timeout=3).json()
+                
+                # Try to find city name in various fields
+                addr = rev.get('address', {})
+                detected_city = addr.get('city') or addr.get('town') or addr.get('village') or addr.get('county')
+                
+                if detected_city and detected_city != st.session_state.selected_city:
+                    st.session_state.selected_city = detected_city
+                    st.success(f"Found: {detected_city}")
+                    time.sleep(1) # Visual feedback
+                    st.rerun()
+            except Exception as e:
+                st.warning(f"GPS found, but street lookup failed: {e}")
 
     st.markdown("---")
     new_city = st.text_input("Search", placeholder="Enter City...")
     if new_city: st.session_state.selected_city = new_city
     
     # Favorites
-    st.markdown("#### Conditions")
-    
-
-
-    st.markdown("---")
-    st.caption("Favorites")
+    st.markdown("#### Saved")
     for fav in st.session_state.favorites:
         if st.button(f"❤️ {fav}", key=fav, use_container_width=True):
             st.session_state.selected_city = fav
-            
+
+    st.markdown("---")
+    
+    # MASSIVE CITY LIST (Doubled)
+    with st.expander("🇮🇳 India Cities"):
+        india_cities = [
+            "New Delhi", "Mumbai", "Bangalore", "Hyderabad", "Chennai", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Surat", 
+            "Lucknow", "Chandigarh", "Goa", "Kochi", "Indore", "Nagpur", "Bhopal", "Visakhapatnam", "Patna", "Vadodara",
+            "Ludhiana", "Agra", "Nashik", "Ranchi", "Raipur", "Meerut", "Rajkot", "Varanasi", "Srinagar", "Aurangabad", 
+            "Amritsar", "Navi Mumbai", "Allahabad", "Howrah", "Jabalpur", "Gwalior", "Vijayawada", "Jodhpur", "Madurai"
+        ]
+        sel_ind = st.selectbox("Select", india_cities, index=None, key="india_sel")
+        if sel_ind: st.session_state.selected_city = sel_ind
+    
+    with st.expander("🇺🇸 USA Major"):
+        usa_cities = [
+            "New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia", "San Antonio", "San Diego", "Dallas", "San Jose", 
+            "Austin", "Seattle", "Denver", "Boston", "Las Vegas", "Miami", "San Francisco", "Atlanta", "Detroit", "Washington DC",
+            "Nashville", "Portland", "Oklahoma City", "Las Vegas", "Baltimore", "Louisville", "Milwaukee", "Albuquerque", "Tucson", "Fresno",
+            "Sacramento", "Kansas City", "Mesa", "Charlotte", "Raleigh", "Omaha", "Minneapolis", "Tampa", "New Orleans"
+        ]
+        sel_usa = st.selectbox("Select", usa_cities, index=None, key="usa_sel")
+        if sel_usa: st.session_state.selected_city = sel_usa
+    
+    with st.expander("🇪🇺 Europe"):
+        eu_cities = [
+            "London", "Paris", "Berlin", "Madrid", "Rome", "Amsterdam", "Vienna", "Lisbon", "Warsaw", "Prague", 
+            "Budapest", "Stockholm", "Oslo", "Copenhagen", "Zurich", "Athens", "Dublin", "Brussels", "Helsinki", "Barcelona", 
+            "Munich", "Milan", "Hamburg", "Naples", "Turin", "Valencia", "Seville", "Frankfurt", "Stuttgart", "Dusseldorf",
+            "Lyon", "Marseille", "Manchester", "Birmingham", "Edinburgh", "Glasgow", "Krakow", "Gdańsk", "Sofia", "Bucharest"
+        ]
+        sel_eu = st.selectbox("Select", eu_cities, index=None, key="eu_sel")
+        if sel_eu: st.session_state.selected_city = sel_eu
+    
+    with st.expander("🌍 Global Hotspots"):
+        global_cities = [
+            "Tokyo", "Dubai", "Singapore", "Sydney", "Beijing", "Seoul", "Bangkok", "Istanbul", "São Paulo", "Toronto", 
+            "Moscow", "Cairo", "Cape Town", "Rio de Janeiro", "Mexico City", "Buenos Aires", "Hong Kong", "Kuala Lumpur",
+            "Manila", "Jakarta", "Ho Chi Minh City", "Shanghai", "Melbourne", "Auckland", "Bora Bora", "Maldives", "Santorini"
+        ]
+        sel_gl = st.selectbox("Select", global_cities, index=None, key="global_sel")
+        if sel_gl: st.session_state.selected_city = sel_gl
+
 # --- 4. MAIN CONTENT ---
 if not data:
     st.warning("Fetching data...")
