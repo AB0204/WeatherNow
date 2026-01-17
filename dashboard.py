@@ -53,7 +53,15 @@ st.markdown(f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
     
-    * {{font-family: 'Inter', sans-serif !important;}}
+    /* Apply font to body but NOT to icons */
+    html, body, [class*="css"] {{
+        font-family: 'Inter', sans-serif;
+    }}
+    
+    /* Ensure Streamlit icons render correctly */
+    [data-testid="stIcon"] {{
+        font-family: initial !important;
+    }}
     
     /* Gradient background */
     .stApp {{
