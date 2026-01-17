@@ -12,7 +12,6 @@ st.set_page_config(page_title="WeatherNow", page_icon="🌤️", layout="wide")
 
 # Dynamic Theme Logic
 def get_theme(code, is_day):
-    # (Background Gradient, Text Color (unused since always white), Accent Color)
     if is_day == 0: 
         return "linear-gradient(to bottom right, #0F2027, #203A43, #2C5364)", "#4ca1af" # Night
     if code in [0, 1]: 
@@ -35,8 +34,8 @@ except ImportError:
     st.stop()
 
 # Initialize Session
-if 'selected_city' not in st.session_state: st.session_state.selected_city = "London"
-if 'favorites' not in st.session_state: st.session_state.favorites = ["London", "New York", "Tokyo"]
+if 'selected_city' not in st.session_state: st.session_state.selected_city = "New Delhi"
+if 'favorites' not in st.session_state: st.session_state.favorites = ["New Delhi", "New York", "London"]
 
 # Helper for MinuteCast
 def get_minutecast_text(minutely_data):
@@ -52,7 +51,6 @@ def get_minutecast_text(minutely_data):
 with st.spinner("Connecting to satellites..."):
     data = get_rich_weather_data(st.session_state.selected_city)
 
-# Fallback defaults if load fails (to prevent crash before UI renders)
 bg_gradient = "linear-gradient(to right, #2c3e50, #4ca1af)"
 if data:
     bg_gradient, accent_color = get_theme(data['current']['weather_code'], data['current']['is_day'])
@@ -71,7 +69,6 @@ st.markdown(f"""
         color: white;
     }}
     
-    /* Hero Card */
     .hero-container {{
         text-align: center;
         padding: 40px 20px;
@@ -86,23 +83,6 @@ st.markdown(f"""
         margin: 0;
     }}
     
-    .hero-city {{
-        font-size: 2.5rem;
-        font-weight: 300;
-        opacity: 0.9;
-        margin-top: 10px;
-    }}
-    
-    .hero-desc {{
-        font-size: 1.5rem;
-        font-weight: 400;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        opacity: 0.8;
-        margin-bottom: 20px;
-    }}
-    
-    /* Glass Cards */
     .glass-card {{
         background: rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(16px);
@@ -111,7 +91,7 @@ st.markdown(f"""
         border-radius: 24px;
         padding: 24px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
-        transition: transform 0.3s ease, background 0.3s ease;
+        transition: transform 0.3s ease;
         margin-bottom: 15px;
         height: 100%;
         text-align: center;
@@ -120,10 +100,8 @@ st.markdown(f"""
     .glass-card:hover {{
         transform: translateY(-5px);
         background: rgba(255, 255, 255, 0.15);
-        border: 1px solid rgba(255, 255, 255, 0.3);
     }}
     
-    /* MinuteCast Pill */
     .minutecast-pill {{
         background: rgba(0, 0, 0, 0.3);
         border-radius: 50px;
@@ -135,21 +113,13 @@ st.markdown(f"""
         font-weight: 600;
     }}
     
-    /* Animations */
     @keyframes fadeIn {{
         from {{ opacity: 0; transform: translateY(20px); }}
         to {{ opacity: 1; transform: translateY(0); }}
     }}
     
-    /* Metrics */
-    .metric-label {{ font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7; }}
-    .metric-val {{ font-size: 2rem; font-weight: 600; }}
-    
-    /* Hiding Streamlit clutter */
     #MainMenu {{ visibility: hidden; }}
     footer {{ visibility: hidden; }}
-    
-    /* White text force */
     h1, h2, h3, p, div, span, label {{ color: white !important; }}
     
 </style>
@@ -160,22 +130,48 @@ with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/1163/1163661.png", width=60)
     st.markdown("### WeatherNow")
     
+    # Locate Me
+    if st.button("📍 Locate Me", use_container_width=True):
+        try:
+            loc_res = requests.get('https://ipinfo.io/json', timeout=2).json()
+            if 'city' in loc_res:
+                st.session_state.selected_city = loc_res['city']
+                st.rerun()
+            else:
+                st.warning("Could not locate IP.")
+        except:
+            st.warning("Location service unavailable.")
+
     # Search
     new_city = st.text_input("🔍 Search City", value="")
     if new_city: st.session_state.selected_city = new_city
     
     st.markdown("---")
-    st.caption("SAVED PLACES")
+    
+    # Favorites
+    st.caption("SAVED")
     for fav in st.session_state.favorites:
-        if st.button(f"📍 {fav}", key=fav, use_container_width=True):
+        if st.button(f"❤️ {fav}", key=f"fav_{fav}", use_container_width=True):
             st.session_state.selected_city = fav
             
     st.markdown("---")
-    st.caption("GLOBAL HOTSPOTS")
-    hotspots = ["Bora Bora", "Santorini", "Kyoto", "Reykjavik", "Cape Town", "Dubai"]
-    for spot in hotspots:
-        if st.button(spot, key=spot, use_container_width=True):
-            st.session_state.selected_city = spot
+    
+    # MASSIVE CITY LIST
+    st.caption("INDIA")
+    india_cities = ["New Delhi", "Mumbai", "Bangalore", "Hyderabad", "Chennai", "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Surat", "Lucknow", "Chandigarh", "Goa", "Kochi"]
+    st.selectbox("Select Indian City", india_cities, index=None, key="india_sel", on_change=lambda: st.session_state.update(selected_city=st.session_state.india_sel) if st.session_state.india_sel else None)
+    
+    st.caption("USA")
+    usa_cities = ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix", "Philadelphia", "San Antonio", "San Diego", "Dallas", "San Jose", "Austin", "Seattle", "Denver", "Boston", "Las Vegas", "Miami", "San Francisco"]
+    st.selectbox("Select US City", usa_cities, index=None, key="usa_sel", on_change=lambda: st.session_state.update(selected_city=st.session_state.usa_sel) if st.session_state.usa_sel else None)
+    
+    st.caption("EUROPE")
+    eu_cities = ["London", "Paris", "Berlin", "Madrid", "Rome", "Amsterdam", "Vienna", "Lisbon", "Warsaw", "Prague", "Budapest", "Stockholm", "Oslo", "Copenhagen", "Zurich", "Athens", "Dublin", "Brussels", "Helsinki"]
+    st.selectbox("Select EU City", eu_cities, index=None, key="eu_sel", on_change=lambda: st.session_state.update(selected_city=st.session_state.eu_sel) if st.session_state.eu_sel else None)
+    
+    st.caption("GLOBAL")
+    global_cities = ["Tokyo", "Dubai", "Singapore", "Sydney", "Beijing", "Seoul", "Bangkok", "Istanbul", "São Paulo", "Toronto", "Moscow", "Cairo", "Cape Town", "Rio de Janeiro"]
+    st.selectbox("Select Global City", global_cities, index=None, key="global_sel", on_change=lambda: st.session_state.update(selected_city=st.session_state.global_sel) if st.session_state.global_sel else None)
 
 # --- 4. MAIN CONTENT ---
 if not data:
@@ -187,9 +183,10 @@ curr = data['current']
 # A. HERO SECTION
 st.markdown(f"""
 <div class="hero-container">
-    <div class="hero-city">{data['city']}, {data['country']}</div>
+    <div style="font-size: 2.5rem; opacity: 0.9;">{data['city']}</div>
+    <div style="font-size: 1.2rem; opacity: 0.6;">{data['country']}</div>
     <div class="hero-temp">{round(curr['temp'])}°</div>
-    <div class="hero-desc">{get_minutecast_text(data.get('minutely'))}</div>
+    <div style="font-size: 1.5rem; opacity: 0.8; text-transform:uppercase; margin-bottom: 20px;">{get_minutecast_text(data.get('minutely'))}</div>
     <div class="minutecast-pill">Feels like {round(curr['feels_like'])}° • High UV: {curr['uv_index']} • Wind: {curr['wind_speed']} km/h</div>
 </div>
 """, unsafe_allow_html=True)
@@ -199,38 +196,36 @@ c1, c2, c3, c4 = st.columns(4)
 with c1:
     st.markdown(f"""
     <div class="glass-card">
-        <div class="metric-label">Humidity</div>
-        <div class="metric-val">{curr['humidity']}%</div>
+        <div style="text-transform:uppercase; font-size:0.8rem; opacity:0.7">Humidity</div>
+        <div style="font-size:2rem; font-weight:600">{curr['humidity']}%</div>
     </div>""", unsafe_allow_html=True)
 with c2:
     st.markdown(f"""
     <div class="glass-card">
-        <div class="metric-label">Air Quality</div>
-        <div class="metric-val">{curr['aqi']}</div>
+        <div style="text-transform:uppercase; font-size:0.8rem; opacity:0.7">Air Quality</div>
+        <div style="font-size:2rem; font-weight:600">{curr['aqi']}</div>
     </div>""", unsafe_allow_html=True)
 with c3:
     st.markdown(f"""
     <div class="glass-card">
-        <div class="metric-label">Sunrise</div>
-        <div class="metric-val">{datetime.fromisoformat(data['daily'][0]['sunrise']).strftime('%H:%M')}</div>
+        <div style="text-transform:uppercase; font-size:0.8rem; opacity:0.7">Sunrise</div>
+        <div style="font-size:2rem; font-weight:600">{datetime.fromisoformat(data['daily'][0]['sunrise']).strftime('%H:%M')}</div>
     </div>""", unsafe_allow_html=True)
 with c4:
     st.markdown(f"""
     <div class="glass-card">
-        <div class="metric-label">Sunset</div>
-        <div class="metric-val">{datetime.fromisoformat(data['daily'][0]['sunset']).strftime('%H:%M')}</div>
+        <div style="text-transform:uppercase; font-size:0.8rem; opacity:0.7">Sunset</div>
+        <div style="font-size:2rem; font-weight:600">{datetime.fromisoformat(data['daily'][0]['sunset']).strftime('%H:%M')}</div>
     </div>""", unsafe_allow_html=True)
 
-# C. TABS (Forecast / Radar / Detailed)
-st.markdown("###") # Spacer
+# C. TABS (Forecast / Radar)
+st.markdown("###")
 t1, t2 = st.tabs(["📅 48-Hour Forecast", "🗺️ Weather Radar"])
 
 with t1:
-    # Plotly Chart
     hourly_df = pd.DataFrame(data['hourly'])
     fig = go.Figure()
     
-    # Area for Temp
     fig.add_trace(go.Scatter(
         x=hourly_df['time'], y=hourly_df['temp'],
         fill='tozeroy', mode='lines',
@@ -239,7 +234,6 @@ with t1:
         name='Temp'
     ))
     
-    # Bars for Rain
     fig.add_trace(go.Bar(
         x=hourly_df['time'], y=hourly_df['prob'],
         yaxis='y2', name='Rain %',
@@ -258,7 +252,6 @@ with t1:
     )
     st.plotly_chart(fig, use_container_width=True)
     
-    # 7-Day Row
     st.markdown("#### 7-Day Outlook")
     cols = st.columns(7)
     for i, day in enumerate(data['daily'][:7]):
@@ -278,7 +271,6 @@ with t2:
         tiles="https://tile.rainviewer.com/v2/radar/nowcast_loop/512/{z}/{x}/{y}/2/1_1.png",
         attr="RainViewer", overlay=True, name="Rain", opacity=0.7
     ).add_to(m)
-    folium.Marker([data['lat'], data['lon']], tooltip=data['city']).add_to(m)
     st_folium(m, width=1200, height=450)
 
-st.markdown("<div style='text-align:center; padding: 20px; opacity: 0.5; font-size: 0.8rem'>WeatherNow Ultimate • Design by Antigravity</div>", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center; padding: 20px; opacity: 0.5; font-size: 0.8rem'>WeatherNow Ultimate v10 • Antigravity</div>", unsafe_allow_html=True)
