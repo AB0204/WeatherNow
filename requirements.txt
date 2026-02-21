@@ -8,3 +8,7 @@ plotly
 folium
 streamlit-folium
 streamlit-js-eval
+torch
+typer
+geopy
+apscheduler

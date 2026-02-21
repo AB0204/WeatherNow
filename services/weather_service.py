@@ -1,9 +1,41 @@
 import requests
 import logging
+import time
 from rich.console import Console
 from datetime import datetime
+from typing import Optional, Dict, Any
 
 console = Console()
+
+def make_api_request_with_retry(url: str, timeout: int = 10, max_retries: int = 3) -> Optional[Dict[Any, Any]]:
+    """
+    Make API request with retry logic and exponential backoff.
+    
+    Args:
+        url: API endpoint URL
+        timeout: Request timeout in seconds
+        max_retries: Maximum number of retry attempts
+        
+    Returns:
+        JSON response or None on failure
+    """
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            return response.json()
+        except requests.Timeout:
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                console.print(f"[yellow]API timeout - retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})[/yellow]")
+                time.sleep(wait_time)
+            else:
+                console.print(f"[red]API timeout after {max_retries} attempts[/red]")
+                return None
+        except requests.RequestException as e:
+            console.print(f"[red]API request failed: {str(e)}[/red]")
+            return None
+    return None
 
 def get_rich_weather_data(city: str):
     """
@@ -11,11 +43,12 @@ def get_rich_weather_data(city: str):
     Returns a unified dictionary or None on error.
     """
     try:
-        # 1. Geocoding
+        # 1. Geocoding with retry logic
         geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=en&format=json"
-        geo_res = requests.get(geo_url, timeout=3).json()
+        geo_res = make_api_request_with_retry(geo_url, timeout=10)
         
-        if not geo_res.get('results'):
+        if not geo_res or not geo_res.get('results'):
+            console.print(f"[yellow]City '{city}' not found. Please check spelling.[/yellow]")
             return None
             
         loc = geo_res['results'][0]
@@ -32,11 +65,18 @@ def get_rich_weather_data(city: str):
             "&forecast_days=8"  # Fetch 8 days to ensure full 7-day outlook
             f"&timezone={client_timezone}"
         )
-        w_res = requests.get(w_url, timeout=4).json()
+        w_res = make_api_request_with_retry(w_url, timeout=10)
+        if not w_res:
+            console.print(f"[red]Failed to fetch weather data for {loc['name']}[/red]")
+            return None
         
-        # 3. Air Quality API
+        # 3. Air Quality API (with fallback if it fails)
         aqi_url = f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=us_aqi"
-        aqi_res = requests.get(aqi_url, timeout=3).json()
+        aqi_res = make_api_request_with_retry(aqi_url, timeout=10)
+        # Fallback to 0 if AQI API fails (non-critical data)
+        if not aqi_res:
+            console.print(f"[yellow]Could not fetch air quality data (using default)[/yellow]")
+            aqi_res = {'current': {'us_aqi': 0}}
         
         # 4. Construct Unified Data Object
         data = {
@@ -113,4 +153,46 @@ def get_weather_from_wttr(city: str):
     return get_rich_weather_data(city)
 
 def get_desc_from_code(code):
-    return "Variable" 
+    return "Variable"
+
+# Helper functions for CLI tool
+def save_weather_data(db, city: str, weather_data: dict):
+    """Save weather data to database (placeholder for CLI compatibility)."""
+    # This would integrate with database.py model if needed
+    # For now, just return success since dashboard doesn't use DB
+    return True
+
+def get_history_stats(db, city: str, days: int = 7):
+    """Get historical weather stats from database (placeholder for CLI compatibility)."""
+    # This would query the database for historical records
+    # For now, return empty list since we're using API-only approach
+    return []
+
+def export_history_to_file(db, city: str, output_file: str):
+    """Export weather history to CSV/JSON file."""
+    import json
+    import pandas as pd
+    
+    # Get historical data (placeholder - would use actual DB)
+    data = get_rich_weather_data(city)
+    if not data:
+        console.print(f"[red]Could not fetch data for {city}[/red]")
+        return False
+    
+    try:
+        if output_file.endswith('.json'):
+            with open(output_file, 'w') as f:
+                json.dump(data, f, indent=2)
+        elif output_file.endswith('.csv'):
+            # Convert to DataFrame for CSV export
+            df = pd.DataFrame([data['current']])
+            df.to_csv(output_file, index=False)
+        else:
+            console.print("[red]Unsupported file format. Use .json or .csv[/red]")
+            return False
+            
+        console.print(f"[green]Data exported to {output_file}[/green]")
+        return True
+    except Exception as e:
+        console.print(f"[red]Export failed: {str(e)}[/red]")
+        return False

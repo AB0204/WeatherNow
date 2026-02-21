@@ -158,12 +158,13 @@ with st.sidebar:
     st.markdown("---")
     st.caption("Saved Places")
     for fav in st.session_state.favorites:
-        if st.button(f"❤️ {fav}", key=fav, use_container_width=True):
+        if st.button(f"❤️ {fav}", key=fav, width='stretch'):
             st.session_state.selected_city = fav
 
 # --- 4. MAIN CONTENT ---
 if not data:
-    st.warning("Fetching data...")
+    st.error(f"⚠️ Could not load weather data for '{st.session_state.selected_city}'. Please try a different city or check your internet connection.")
+    st.info("💡 Try selecting a city from the sidebar dropdown instead of typing.")
     st.stop()
     
 curr = data['current']
@@ -204,7 +205,7 @@ with t1:
         font=dict(color='white'), margin=dict(t=10, l=0, r=0, b=0),
         height=250, xaxis=dict(showgrid=False), yaxis=dict(showgrid=False)
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
     
     st.markdown("#### 7-Day Outlook")
     cols = st.columns(7)
@@ -220,7 +221,7 @@ with t2:
         tiles="https://tile.rainviewer.com/v2/radar/nowcast_loop/512/{z}/{x}/{y}/2/1_1.png",
         attr="RainViewer", overlay=True, name="Rain", opacity=0.7
     ).add_to(m)
-    st_folium(m, height=400, use_container_width=True)
+    st_folium(m, height=400, width='stretch')
 
 with t3:
     st.json(curr)
